@@ -228,7 +228,7 @@
     async function unlockAudio() {
       if (audioUnlocked) return true;
 
-      log('Unlock requested (must be called from a user gesture).');
+      log('Unlock gesture.');
 
       // 1) Resume context explicitly
       try {
@@ -313,7 +313,7 @@
     // ----------------------------
     function onScanEvent() {
       const ok = (Math.random() > 0.5);
-      const kind = ok ? 'happy' : 'sad';
+      const kind = ok ? 'HAPPY' : 'SAD';
 
       // scanner callback = not a gesture, so it requires prior unlock
       log(`About to play ${kind.toUpperCase()}. volumes: happy=${soundHappy.volume()} sad=${soundSad.volume()}`);
