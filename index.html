@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Android Chrome Audio Unlock Demo (Howler, Conservative)</title>
+  <title>Beep/Buzz Unlock Demo (Howler, Conservative)</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; line-height: 1.35; }
     h1 { font-size: 18px; margin: 0 0 8px; }
@@ -15,8 +15,7 @@
     button:active { transform: translateY(1px); }
     button[disabled] { opacity: 0.55; cursor: not-allowed; }
     #log { white-space: pre-wrap; background: #0b0b0b; color: #d7ffd7; padding: 10px; border-radius: 12px; min-height: 170px; overflow: auto; }
-    #err { color: #b00020; font-weight: 600; }
-    code { background: #f2f2f2; padding: 2px 6px; border-radius: 6px; }
+    #err { color: #b00020; font-weight: 600; margin-bottom: 6px; }
 
     #gate {
       position: fixed; inset: 0;
@@ -44,32 +43,33 @@
   </style>
 </head>
 <body>
-  <h1>Android Chrome Audio Unlock Demo (Howler + Conservative Patterns)</h1>
+  <h1>Beep/Buzz Unlock Demo (Howler + Conservative Patterns)</h1>
   <div class="muted">
-    If Howler can’t load (CDN blocked), the page will say so and fall back to plain WebAudio oscillator beeps.
+    Designed to mimic two cases:
+    (1) page reload wants sound immediately, (2) scanner callbacks want sound without a gesture.
   </div>
 
   <div class="card">
     <h2>Status</h2>
     <div id="err"></div>
     <div class="row">
-      <div><strong>Howler loaded:</strong> <span id="howlerLoaded">…</span></div>
-      <div><strong>Howler using WebAudio:</strong> <span id="usingWebAudio">…</span></div>
-      <div><strong>Howler state:</strong> <span id="howlerState">…</span></div>
+      <div><strong>Howler present:</strong> <span id="howlerPresent">?</span></div>
+      <div><strong>Howler using WebAudio:</strong> <span id="usingWebAudio">?</span></div>
+      <div><strong>Howler state:</strong> <span id="howlerState">?</span></div>
       <div><strong>Audio unlocked:</strong> <span id="unlocked">No</span></div>
       <div><strong>Queued sound:</strong> <span id="queued">None</span></div>
     </div>
 
     <div class="row" style="margin-top: 10px;">
-      <button id="btnUnlock" disabled>Start Scanning (Enable Sound)</button>
-      <button id="btnScanOnce" disabled>Simulate Scan Event</button>
-      <button id="btnReloadHappy" disabled>Simulate Reload: HAPPY</button>
-      <button id="btnReloadSad" disabled>Simulate Reload: SAD</button>
+      <button id="btnUnlock">Start Scanning (Enable Sound)</button>
+      <button id="btnScanOnce">Simulate Scan Event</button>
+      <button id="btnReloadHappy">Simulate Reload: HAPPY</button>
+      <button id="btnReloadSad">Simulate Reload: SAD</button>
       <button id="btnClear">Clear Log</button>
     </div>
 
     <div class="muted" style="margin-top: 8px;">
-      “Reload simulation” demonstrates the conservative fix: queue the sound, show a “Tap to enable sound” gate, then play after tap.
+      “Reload simulation” shows the conservative fix: queue the sound, show a “Tap to enable sound” gate, then play after tap.
     </div>
   </div>
 
@@ -86,28 +86,25 @@
         Tap below to enable audio, then we’ll play the queued notification.
       </div>
       <button id="gateBtn">Enable Sound</button>
-      <div class="hint">This is the boring-but-reliable approach for “sound on reload.”</div>
+      <div class="hint">Boring, conservative, works.</div>
     </div>
   </div>
 
+  <!-- IMPORTANT: consider self-hosting howler.min.js for production -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
+
   <script>
     // ----------------------------
-    // Logging & UI
+    // Logging / error visibility
     // ----------------------------
     const logEl = document.getElementById('log');
     const errEl = document.getElementById('err');
 
-    const howlerLoadedEl = document.getElementById('howlerLoaded');
+    const howlerPresentEl = document.getElementById('howlerPresent');
     const usingWebAudioEl = document.getElementById('usingWebAudio');
     const howlerStateEl = document.getElementById('howlerState');
     const unlockedEl = document.getElementById('unlocked');
     const queuedEl = document.getElementById('queued');
-
-    const btnUnlock = document.getElementById('btnUnlock');
-    const btnScanOnce = document.getElementById('btnScanOnce');
-    const btnReloadHappy = document.getElementById('btnReloadHappy');
-    const btnReloadSad = document.getElementById('btnReloadSad');
-    const btnClear = document.getElementById('btnClear');
 
     function log(msg) {
       const ts = new Date().toISOString().slice(11, 19);
@@ -116,172 +113,152 @@
     }
 
     window.addEventListener('error', (e) => {
-      // Make runtime errors visible instead of silently dying.
       log(`JS ERROR: ${e.message}`);
     });
 
     // ----------------------------
-    // Script loader with fallbacks
+    // WAV generator (audible)
     // ----------------------------
-    function loadScript(url) {
-      return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = url;
-        s.async = true;
-        s.onload = () => resolve(url);
-        s.onerror = () => reject(new Error('Failed to load ' + url));
-        document.head.appendChild(s);
-      });
-    }
+    function makeWavDataUri({ durationSec, sampleRate = 44100, renderSample }) {
+      const samples = Math.floor(durationSec * sampleRate);
+      const bytesPerSample = 2; // 16-bit PCM
+      const blockAlign = bytesPerSample * 1; // mono
+      const byteRate = sampleRate * blockAlign;
+      const dataSize = samples * blockAlign;
 
-    async function loadHowlerWithFallbacks() {
-      const sources = [
-        // cdnjs first
-        'https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js',
-        // jsdelivr fallback
-        'https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js'
-      ];
-      for (const url of sources) {
-        try {
-          log('Loading Howler: ' + url);
-          await loadScript(url);
-          if (window.Howl && window.Howler) {
-            log('Howler loaded from: ' + url);
-            return true;
-          }
-        } catch (e) {
-          log(e.message);
-        }
+      const buffer = new ArrayBuffer(44 + dataSize);
+      const view = new DataView(buffer);
+
+      function writeStr(off, s) { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); }
+
+      writeStr(0, 'RIFF');
+      view.setUint32(4, 36 + dataSize, true);
+      writeStr(8, 'WAVE');
+
+      writeStr(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);   // PCM
+      view.setUint16(22, 1, true);   // mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, byteRate, true);
+      view.setUint16(32, blockAlign, true);
+      view.setUint16(34, 16, true);  // 16-bit
+
+      writeStr(36, 'data');
+      view.setUint32(40, dataSize, true);
+
+      let offset = 44;
+      for (let i = 0; i < samples; i++) {
+        const t = i / sampleRate;
+        const v = Math.max(-1, Math.min(1, renderSample(t, i, samples)));
+        view.setInt16(offset, Math.floor(v * 32767), true);
+        offset += 2;
       }
-      return false;
+
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      return 'data:audio/wav;base64,' + btoa(binary);
+    }
+
+    // Happy beep: 880Hz, fade out to avoid clicks
+    const beepUri = makeWavDataUri({
+      durationSec: 0.09,
+      renderSample: (t, i, n) => {
+        const freq = 880;
+        const fade = Math.max(0, 1 - (i / n));
+        return Math.sin(2 * Math.PI * freq * t) * 0.35 * fade;
+      }
+    });
+
+    // Sad buzz: lower + slight edge, fade out
+    const buzzUri = makeWavDataUri({
+      durationSec: 0.12,
+      renderSample: (t, i, n) => {
+        const f1 = 220, f2 = 246.94;
+        const fade = Math.max(0, 1 - (i / n));
+        const s = (Math.sin(2 * Math.PI * f1 * t) * 0.25) + (Math.sin(2 * Math.PI * f2 * t) * 0.18);
+        const edge = Math.sign(Math.sin(2 * Math.PI * 60 * t)) * 0.03;
+        return (s + edge) * fade;
+      }
+    });
+
+    // ----------------------------
+    // Guard: is Howler actually present?
+    // ----------------------------
+    if (!window.Howl || !window.Howler) {
+      errEl.textContent = 'Howler did not load. (CDN blocked?) Try self-hosting howler.min.js.';
+      howlerPresentEl.textContent = 'No';
+      usingWebAudioEl.textContent = 'N/A';
+      howlerStateEl.textContent = 'N/A';
+      log('Howler missing. No demo possible.');
+      throw new Error('Howler missing');
     }
 
     // ----------------------------
-    // Audio engine (Howler if available; oscillator fallback otherwise)
+    // Howler setup (start silent; unlock later)
     // ----------------------------
     let audioUnlocked = false;
     let queuedSound = null; // 'happy' | 'sad' | null
-    let useHowler = false;
 
-    // Howler objects (if loaded)
-    let soundHappy = null;
-    let soundSad = null;
+    const soundHappy = new Howl({ src: [beepUri], html5: false, volume: 0.0 });
+    const soundSad   = new Howl({ src: [buzzUri], html5: false, volume: 0.0 });
 
-    // WebAudio fallback
-    let fallbackCtx = null;
+    soundHappy.on('load', () => log('HAPPY loaded.'));
+    soundSad.on('load', () => log('SAD loaded.'));
+    soundHappy.on('playerror', (id, err) => log(`HAPPY playerror (id=${id}): ${err}`));
+    soundSad.on('playerror', (id, err) => log(`SAD playerror (id=${id}): ${err}`));
 
     function updateStatus() {
-      howlerLoadedEl.textContent = useHowler ? 'Yes' : 'No (fallback mode)';
-      if (useHowler) {
-        usingWebAudioEl.textContent = (window.Howler && Howler.usingWebAudio) ? 'Yes' : 'No';
-        try { howlerStateEl.textContent = Howler.state(); } catch { howlerStateEl.textContent = 'Unknown'; }
-      } else {
-        usingWebAudioEl.textContent = 'N/A';
-        howlerStateEl.textContent = 'N/A';
-      }
+      howlerPresentEl.textContent = 'Yes';
+      usingWebAudioEl.textContent = Howler.usingWebAudio ? 'Yes' : 'No';
+      try { howlerStateEl.textContent = Howler.state(); } catch { howlerStateEl.textContent = 'Unknown'; }
       unlockedEl.textContent = audioUnlocked ? 'Yes' : 'No';
       queuedEl.textContent = queuedSound ?? 'None';
     }
 
-    function ensureFallbackCtx() {
-      if (!fallbackCtx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        fallbackCtx = AC ? new AC() : null;
-      }
-      return fallbackCtx;
-    }
-
-    function playFallback(kind) {
-      const ctx = ensureFallbackCtx();
-      if (!ctx) {
-        log('No AudioContext available for fallback.');
-        return;
-      }
-      // Quick oscillator beep/buzz
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-
-      const now = ctx.currentTime;
-      if (kind === 'happy') {
-        o.frequency.value = 880;
-      } else {
-        o.frequency.value = 220;
-      }
-
-      // Envelope to avoid clicks
-      g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + (kind === 'happy' ? 0.09 : 0.12));
-
-      o.connect(g).connect(ctx.destination);
-      o.start(now);
-      o.stop(now + (kind === 'happy' ? 0.10 : 0.13));
-      log(`Fallback played ${kind.toUpperCase()}.`);
-    }
-
-    function playNotification(kind) {
-      if (useHowler) {
-        const howl = (kind === 'happy') ? soundHappy : soundSad;
-        try {
-          const id = howl.play();
-          log(`Howler played ${kind.toUpperCase()} (id=${id}).`);
-        } catch (e) {
-          log(`Howler play threw (${kind}): ${e?.message ?? String(e)} — using fallback.`);
-          playFallback(kind);
-        }
-      } else {
-        playFallback(kind);
-      }
-      updateStatus();
-    }
-
+    // ----------------------------
+    // Conservative unlock + queue + gate
+    // ----------------------------
     async function unlockAudio() {
       if (audioUnlocked) return true;
 
-      log('Unlock requested (must be triggered by user gesture).');
+      log('Unlock requested (must be called from a user gesture).');
 
-      if (useHowler && window.Howler && Howler.ctx) {
-        try {
-          if (Howler.ctx.state !== 'running') {
-            await Howler.ctx.resume();
-            log('Howler AudioContext resumed.');
-          }
-        } catch (e) {
-          log('Howler ctx.resume failed: ' + (e?.message ?? String(e)));
+      // 1) Resume context explicitly
+      try {
+        if (Howler.ctx && Howler.ctx.state !== 'running') {
+          await Howler.ctx.resume();
+          log('Howler.ctx.resume() complete.');
         }
+      } catch (e) {
+        log('Howler.ctx.resume() failed: ' + (e?.message ?? String(e)));
+      }
 
-        // Silent prime (volume 0, stop quickly), then set working volumes.
-        try {
-          soundHappy.volume(0.0);
-          const id = soundHappy.play();
-          setTimeout(() => {
-            soundHappy.stop(id);
-            soundHappy.volume(0.25);
-            soundSad.volume(0.25);
-            log('Silent prime stopped; volumes set.');
-            updateStatus();
-          }, 60);
-        } catch (e) {
-          log('Silent prime failed: ' + (e?.message ?? String(e)));
+      // 2) Silent prime: play HAPPY at volume 0, stop quickly, then set working volumes
+      try {
+        soundHappy.volume(0.0);
+        const id = soundHappy.play();
+        setTimeout(() => {
+          soundHappy.stop(id);
           soundHappy.volume(0.25);
           soundSad.volume(0.25);
-        }
-      } else {
-        // Fallback: resume AudioContext on gesture
-        const ctx = ensureFallbackCtx();
-        try {
-          if (ctx && ctx.state !== 'running') {
-            await ctx.resume();
-            log('Fallback AudioContext resumed.');
-          }
-        } catch (e) {
-          log('Fallback resume failed: ' + (e?.message ?? String(e)));
-        }
+          log('Silent prime stopped; volumes set to 0.25.');
+          updateStatus();
+        }, 60);
+      } catch (e) {
+        log('Silent prime failed: ' + (e?.message ?? String(e)));
+        soundHappy.volume(0.25);
+        soundSad.volume(0.25);
       }
 
       audioUnlocked = true;
       updateStatus();
 
+      // Play queued notification after unlock
       if (queuedSound) {
         const s = queuedSound;
         queuedSound = null;
@@ -292,7 +269,18 @@
       return true;
     }
 
-    // Conservative: if not unlocked, queue + gate.
+    function playNotification(kind) {
+      const howl = (kind === 'happy') ? soundHappy : soundSad;
+      try {
+        const id = howl.play();
+        log(`Played ${kind.toUpperCase()} (id=${id}).`);
+      } catch (e) {
+        log(`${kind.toUpperCase()} play() threw: ` + (e?.message ?? String(e)));
+      }
+      updateStatus();
+    }
+
+    // If not unlocked, do NOT attempt autoplay. Queue + show gate.
     function requestNotification(kind) {
       if (audioUnlocked) {
         playNotification(kind);
@@ -321,15 +309,27 @@
     // ----------------------------
     // Demo actions
     // ----------------------------
+    function onScanEvent() {
+      const ok = (Math.random() > 0.5);
+      const kind = ok ? 'happy' : 'sad';
+
+      // scanner callback = not a gesture, so it requires prior unlock
+      if (!audioUnlocked) {
+        log(`Scan event: ${ok ? 'SUCCESS' : 'FAIL'} — audio locked, so sound suppressed.`);
+        return;
+      }
+      log(`Scan event: ${ok ? 'SUCCESS' : 'FAIL'} — playing ${kind}.`);
+      playNotification(kind);
+    }
+
     function simulateReloadResult(kind) {
-      // “New page” means locked again; reset.
+      // “New page” means locked again
       audioUnlocked = false;
       queuedSound = null;
 
-      if (useHowler && soundHappy && soundSad) {
-        soundHappy.volume(0.0);
-        soundSad.volume(0.0);
-      }
+      // reset to silent start for this simulated page-load
+      soundHappy.volume(0.0);
+      soundSad.volume(0.0);
       updateStatus();
 
       log('--- Simulated PAGE RELOAD ---');
@@ -341,63 +341,15 @@
       requestNotification(kind);
     }
 
-    function onScanEvent() {
-      const ok = (Math.random() > 0.5);
-      const kind = ok ? 'happy' : 'sad';
+    document.getElementById('btnUnlock').addEventListener('click', unlockAudio);
+    document.getElementById('btnScanOnce').addEventListener('click', onScanEvent);
+    document.getElementById('btnReloadHappy').addEventListener('click', () => simulateReloadResult('happy'));
+    document.getElementById('btnReloadSad').addEventListener('click', () => simulateReloadResult('sad'));
+    document.getElementById('btnClear').addEventListener('click', () => { logEl.textContent = ''; log('Log cleared.'); });
 
-      // Scanner callbacks are NOT gestures — so they require a prior unlock.
-      if (!audioUnlocked) {
-        log(`Scan event: ${ok ? 'SUCCESS' : 'FAIL'} — audio locked, so sound suppressed.`);
-        return;
-      }
-      log(`Scan event: ${ok ? 'SUCCESS' : 'FAIL'} — playing ${kind}.`);
-      playNotification(kind);
-    }
-
-    btnUnlock.addEventListener('click', unlockAudio);
-    btnScanOnce.addEventListener('click', onScanEvent);
-    btnReloadHappy.addEventListener('click', () => simulateReloadResult('happy'));
-    btnReloadSad.addEventListener('click', () => simulateReloadResult('sad'));
-    btnClear.addEventListener('click', () => { logEl.textContent = ''; log('Log cleared.'); });
-
-    // ----------------------------
     // Boot
-    // ----------------------------
-    (async function boot() {
-      log('Booting…');
-      updateStatus();
-
-      const howlerOk = await loadHowlerWithFallbacks();
-      if (!howlerOk) {
-        errEl.textContent = 'Howler could not be loaded (CDN blocked or offline). Using WebAudio fallback.';
-        useHowler = false;
-      } else {
-        useHowler = true;
-
-        // Create Howls only after Howler is confirmed present.
-        // Start silent. We only make them audible after unlock.
-        soundHappy = new Howl({ src: ['data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA='], html5: false, volume: 0.0 });
-        soundSad   = new Howl({ src: ['data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA='], html5: false, volume: 0.0 });
-
-        // Instead of relying on data URI samples (which can vary), we’ll synthesize using WebAudio fallback
-        // if Howler play fails; but we can still use Howler to manage ctx unlock reliably.
-        // If you want real files, replace the src arrays with ['beep.mp3'] and ['buzz.mp3'].
-        soundHappy.on('playerror', (id, err) => log(`HAPPY playerror: ${err}`));
-        soundSad.on('playerror', (id, err) => log(`SAD playerror: ${err}`));
-
-        log('Howler initialized (silent). NOTE: this demo uses oscillator fallback for actual tones unless you plug in real mp3s.');
-      }
-
-      // Enable buttons now that boot is complete.
-      btnUnlock.disabled = false;
-      btnScanOnce.disabled = false;
-      btnReloadHappy.disabled = false;
-      btnReloadSad.disabled = false;
-
-      updateStatus();
-      log('Ready.');
-      log('Try: “Simulate Reload: HAPPY/SAD” (will show gate), or “Start Scanning” then “Simulate Scan Event”.');
-    })();
+    updateStatus();
+    log('Ready. Try “Start Scanning” then “Simulate Scan Event”, or try “Simulate Reload”.');
   </script>
 </body>
 </html>
