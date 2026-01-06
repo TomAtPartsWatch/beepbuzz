@@ -276,7 +276,6 @@
     function playNotification(kind) {
       const howl = (kind === 'happy') ? soundHappy : soundSad;
       try {
-        log(`About to play ${kind}. volumes: happy=${soundHappy.volume()} sad=${soundSad.volume()}`);
         const id = howl.play();
         log(`Played ${kind.toUpperCase()} (id=${id}).`);
       } catch (e) {
@@ -319,6 +318,7 @@
       const kind = ok ? 'happy' : 'sad';
 
       // scanner callback = not a gesture, so it requires prior unlock
+      log(`About to play ${kind}. volumes: happy=${soundHappy.volume()} sad=${soundSad.volume()}`);
       if (!audioUnlocked) {
         log(`Scan event: ${ok ? 'SUCCESS' : 'FAIL'} — audio locked, so sound suppressed.`);
         return;
