@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Beep/Buzz Unlock Demo (Howler, Conservative)</title>
+  <title>Beep/Buzz Unlock Demo!! (Howler, Conservative)</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; line-height: 1.35; }
     h1 { font-size: 18px; margin: 0 0 8px; }
@@ -272,7 +272,7 @@
     }
 
     function playNotification(kind) {
-      const howl = (kind === 'HAPPY') ? soundHappy : soundSad;
+      const howl = (kind.toLowerCase() === 'happy') ? soundHappy : soundSad;
       try {
         const id = howl.play();
         log(`Played ${kind.toUpperCase()} (id=${id}).`);
@@ -313,7 +313,7 @@
     // ----------------------------
     function onScanEvent() {
       const ok = (Math.random() > 0.5);
-      const kind = ok ? 'HAPPY' : 'SAD';
+      const kind = ok ? 'happy' : 'sad';
 
       // scanner callback = not a gesture, so it requires prior unlock
       log(`About to play ${kind.toUpperCase()}. volumes: happy=${soundHappy.volume()} sad=${soundSad.volume()}`);
