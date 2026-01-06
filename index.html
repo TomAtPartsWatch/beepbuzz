@@ -272,7 +272,7 @@
     }
 
     function playNotification(kind) {
-      const howl = (kind === 'happy') ? soundHappy : soundSad;
+      const howl = (kind === 'HAPPY') ? soundHappy : soundSad;
       try {
         const id = howl.play();
         log(`Played ${kind.toUpperCase()} (id=${id}).`);
@@ -337,8 +337,8 @@
 
       log('--- Simulated PAGE RELOAD ---');
       alert(kind === 'happy'
-        ? 'Part is AVAILABLE. (Happy beep wanted on load.)'
-        : 'Part is NOT available. (Sad buzz wanted on load.)'
+        ? 'Yes! Part AVAILABLE.'
+        : 'No! Part UNavailable.'
       );
 
       requestNotification(kind);
