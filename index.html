@@ -212,6 +212,10 @@
     soundHappy.on('playerror', (id, err) => log(`HAPPY playerror (id=${id}): ${err}`));
     soundSad.on('playerror', (id, err) => log(`SAD playerror (id=${id}): ${err}`));
 
+    soundHappy.on('loaderror', (id, err) => log(`HAPPY loaderror (id=${id}): ${err}`));
+    soundSad.on('loaderror', (id, err) => log(`SAD loaderror (id=${id}): ${err}`));
+
+
     function updateStatus() {
       howlerPresentEl.textContent = 'Yes';
       usingWebAudioEl.textContent = Howler.usingWebAudio ? 'Yes' : 'No';
@@ -272,6 +276,7 @@
     function playNotification(kind) {
       const howl = (kind === 'happy') ? soundHappy : soundSad;
       try {
+        log(`About to play ${kind}. volumes: happy=${soundHappy.volume()} sad=${soundSad.volume()}`);
         const id = howl.play();
         log(`Played ${kind.toUpperCase()} (id=${id}).`);
       } catch (e) {
