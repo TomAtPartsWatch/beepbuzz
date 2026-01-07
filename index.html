@@ -344,6 +344,36 @@
       requestNotification(kind);
     }
 
+    // ----------------------------
+    // Loop: Start/Stop random beep every 1 second (requires prior unlock)
+    // ----------------------------
+    let loopTimer = null;
+    
+    async function toggleLoop() {
+      // If already looping, stop it
+      if (loopTimer !== null) {
+        clearInterval(loopTimer);
+        loopTimer = null;
+        const btn = document.getElementById('btnUnlock');
+        btn.textContent = 'Start Scanning (Enable Sound)';
+        log('Loop STOPPED.');
+        return;
+      }
+    
+      // First, unlock audio (this click is the required user gesture)
+      await unlockAudio();
+    
+      // Start looping once per second without further gestures
+      loopTimer = setInterval(() => {
+        onScanEvent();
+      }, 1000);
+    
+      const btn = document.getElementById('btnUnlock');
+      btn.textContent = 'Stop Scanning (Stop Loop)';
+      log('Loop STARTED: random HAPPY/SAD once per second.');
+    }
+
+
     document.getElementById('btnUnlock').addEventListener('click', unlockAudio);
     document.getElementById('btnScanOnce').addEventListener('click', onScanEvent);
     document.getElementById('btnReloadHappy').addEventListener('click', () => simulateReloadResult('happy'));
